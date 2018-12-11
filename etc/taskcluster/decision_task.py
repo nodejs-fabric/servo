@@ -13,18 +13,18 @@ def main(task_for, mock=False):
         if CONFIG.git_ref in ["refs/heads/auto", "refs/heads/try", "refs/heads/try-taskcluster"]:
             CONFIG.treeherder_repo_name = "servo-" + CONFIG.git_ref.split("/")[-1]
 
-            linux_tidy_unit()
-            android_arm32()
-            windows_unit()
-            macos_unit()
+            # linux_tidy_unit()
+            # android_arm32()
+            # windows_unit()
+            # macos_unit()
 
             # These are disabled in a "real" decision task,
             # but should still run when testing this Python code. (See `mock.py`.)
             if mock:
                 windows_release()
-                linux_wpt()
                 linux_build_task("Indexed by task definition").find_or_create()
                 android_x86()
+            linux_wpt()
 
     # https://tools.taskcluster.net/hooks/project-servo/daily
     elif task_for == "daily":
@@ -194,7 +194,7 @@ def windows_release():
 
 
 def linux_wpt():
-    release_build_task = linux_release_build()
+    release_build_task = "P9WU_2MRTGKbVsTxf7RDCw" # linux_release_build()
     total_chunks = 2
     for i in range(total_chunks):
         this_chunk = i + 1
@@ -229,43 +229,40 @@ def wpt_chunk(release_build_task, total_chunks, this_chunk):
         .with_index_and_artifacts_expire_in(log_artifacts_expire_in)
         .with_max_run_time_minutes(60)
         .with_env(TOTAL_CHUNKS=total_chunks, THIS_CHUNK=this_chunk)
-        .with_script("""
-            ./mach test-wpt \
-                --release \
-                --processes 24 \
-                --total-chunks "$TOTAL_CHUNKS" \
-                --this-chunk "$THIS_CHUNK" \
-                --log-raw test-wpt.log \
-                --log-errorsummary wpt-errorsummary.log \
-                --always-succeed
-            ./mach filter-intermittents\
-                wpt-errorsummary.log \
-                --log-intermittents intermittents.log \
-                --log-filteredsummary filtered-wpt-errorsummary.log \
-                --tracker-api default
-        """)
-        # FIXME: --reporter-api default
-        # IndexError: list index out of range
-        # File "/repo/python/servo/testing_commands.py", line 533, in filter_intermittents
-        #   pull_request = int(last_merge.split(' ')[4][1:])
     )
     if this_chunk == 1:
         task.name += " + extra"
         task.extra["treeherder"]["symbol"] += "+"
         task.with_script("""
-            ./mach test-wpt-failure
-            ./mach test-wpt --release --binary-arg=--multiprocess --processes 24 \
+            time ./mach test-wpt-failure
+            time ./mach test-wpt --release --binary-arg=--multiprocess --processes 24 \
                 --log-raw test-wpt-mp.log \
                 --log-errorsummary wpt-mp-errorsummary.log \
                 eventsource
         """)
+    task.with_script("""
+        ./mach test-wpt \
+            --release \
+            --processes 24 \
+            --total-chunks "$TOTAL_CHUNKS" \
+            --this-chunk "$THIS_CHUNK" \
+            --log-raw test-wpt.log \
+            --log-errorsummary wpt-errorsummary.log \
+            --always-succeed
+        ./mach filter-intermittents\
+            wpt-errorsummary.log \
+            --log-intermittents intermittents.log \
+            --log-filteredsummary filtered-wpt-errorsummary.log \
+            --tracker-api default
+            --reporter-api default
+    """)
     task.with_artifacts(*[
         "/repo/" + word
         for script in task.scripts
         for word in script.split()
         if word.endswith(".log")
     ])
-    task.create()
+    return task.create()
 
 
 def daily_tasks_setup():
